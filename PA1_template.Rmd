@@ -1,25 +1,228 @@
 ---
-title: "Reproducible Research: Peer Assessment 1"
+title: "Reproducible Research Week 2 Course Project"
+author: "Tet Rodriguez"
+date: "March 5, 2017"
 output: 
-  html_document:
-    keep_md: true
+html_document:
+keep_md: true
 ---
 
+### Overview
+This document shows simple analyses of an [activity monitoring data set](http://bit.ly/2kX7hjw).
 
-## Loading and preprocessing the data
+The data contains details of personal movement collected using activity monitoring device(s). The device collected data at 5 minute intervals through out the day. The data consists of two months of data from an anonymous individual collected during the months of October and November, 2012 and include the number of steps taken in 5 minute intervals each day.
+
+This document will show simple exploratory data analysis of the said data set.
+
+### Loading and preprocessing the data
+
+Before exploring the data, some setup must be performed.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(knitr)
+```
+
+This is to load the dataset into the R variable 'ad':
+
+```{r loaddata, echo=TRUE}
+   temp <- tempfile()
+  download.file("https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2Factivity.zip", 
+                temp)
+  ad <- read.csv(unz(temp, "activity.csv"), header = TRUE)
+  unlink(temp)
+```  
+
+### Mean Total Number of Steps Taken Per Day
+
+To get a better grasp of the data, the steps below are performed. The succeeding steps are done ignoring the missing values or NAs.
+
+1. Calculate the total number of steps taken per day  
+```{r totalsteps, echo=TRUE, results='asis'}
+  library(datasets)
+  library(xtable)
+  library(plyr)
+  
+  ## Get the daily sum of steps
+  sumdat <- aggregate(ad$steps, by=list(ad$date), FUN=sum)
+  sumdat <- rename( sumdat, c("Group.1" ="Date", "x"="SummedSteps"))
+  
+  ## Doing things the hard way for the sake of more compact tables *_*
+  temptab1 <- sumdat[sumdat$Date %in% unique(ad$date)[1:16], 1:2]
+  temptab2 <- sumdat[sumdat$Date %in% unique(ad$date)[17:31], 1:2]
+  temptab3 <- sumdat[sumdat$Date %in% unique(ad$date)[32:46], 1:2]
+  temptab4 <- sumdat[sumdat$Date %in% unique(ad$date)[47:61], 1:2]
+  temptab2 <- rbind(temptab2, NA)
+  temptab3 <- rbind(temptab3, NA)
+  temptab4 <- rbind(temptab4, NA)
+  
+
+  xt <- xtable(cbind(temptab1, " ", temptab2, " ", temptab3, " ", temptab4))
+  print(xt, type='html')
+```  
+
+  
+2. Make a histogram of the total number of steps taken each day.  
+
+```{r stepshistogram, echo=TRUE}
+   hist(sumdat$SummedSteps,
+        main = "Histogram of Total Steps Per Day",
+        xlab = "Total Steps Per Day",
+        col="red",
+        breaks = 10)
+```  
+  
+  
+3. Calculate and report the mean and median of the total number of steps taken per day  
+
+```{r meanmedian1, echo=TRUE, results='asis'}
+  
+  
+  meandat <- aggregate(ad$steps, by=list(ad$date), FUN=mean)
+  meandat <- rename( meandat, c("Group.1" ="Date", "x"="MeanSteps"))
+  mediandat <- aggregate(ad$steps, by=list(ad$date), FUN=median, na.rm=TRUE)
+  meanmed <- cbind(meandat, MedianSteps = mediandat$x )
+  
+  ## Doing things the hard way for the sake of more compact tables *_*
+  temptab1 <- meanmed[meanmed$Date %in% unique(ad$date)[1:21], 1:3]
+  temptab2 <- meanmed[meanmed$Date %in% unique(ad$date)[22:41], 1:3]
+  temptab3 <- meanmed[meanmed$Date %in% unique(ad$date)[42:61], 1:3]
+  temptab2 <- rbind(temptab2, NA)
+  temptab3 <- rbind(temptab3, NA)
+  
+
+  xt <- xtable(cbind(temptab1, NA , temptab2, NA , temptab3))
+  print(xt, type='html')
+```
+  
+### Average Daily Activity Pattern  
+  
+1. Make a time series plot of the 5-minute interval (x-axis) and the average number of steps taken, averaged across all days (y-axis)  
+```{r timeseriesplot, echo=TRUE}
+   library(ggplot2)   
+   intmean <- aggregate(ad$steps, by=list(ad$interval), FUN=mean, na.action=NULL, na.rm=TRUE)
+   intmean <- rename( intmean, c("Group.1" ="Interval", "x"="MeanSteps"))
+   
+   ggplot(intmean, aes(x=Interval, y=MeanSteps)) + geom_line() +
+         xlab("5 Minute Intervals") + ylab("Average Steps Per Interval") +
+         ggtitle("Time Series Plot of Average Steps Per Interval")
+```  
+
+2. Which 5-minute interval, on average across all the days in the dataset, contains the maximum number of steps?  
+Based on the chart in #1, we can guess that it's an interval somewhere between 700 and 900  
+But to be more percise we can do the following  
+```{r getmaxavesteps, echo=TRUE}
+   max(intmean$MeanSteps)
+```  
+Now we know the max value, we can just look for the interval with that value:
+```{r getmaxinterval, echo=TRUE}
+   intmean[intmean$MeanSteps > 206, ]
+```  
+So there, the 5-minute interval with the maximum number of steps (on average across all the days in the dataset) is interval 835
+
+  
+### Imputing Missing Values
+
+There are a number of days/intervals where there are missing values (coded as NA). The presence of missing days may introduce bias into some calculations or summaries of the data.
+
+1. Calculate and report the total number of missing values in the dataset (i.e. the total number of rows with NAs)  
+```{r getNAcount, echo=TRUE}
+   summary(ad$steps)[7]
+```  
+
+2. Devise a strategy for filling in all of the missing values in the dataset. The strategy does not need to be sophisticated. For example, you could use the mean/median for that day, or the mean for that 5-minute interval, etc.  
+
+The strategy we will use will be to fill in the blanks with the mean for the 5-minute interval. We will reuse the dataframe intmean, which has the interval averages.
+
+3. Create a new dataset that is equal to the original dataset but with the missing data filled in.
+
+```{r ImputeNAs, echo=TRUE}
+   ad2 <- ad
+   for (i in unique(ad$interval)){
+        ad2[is.na(ad2$steps) & ad2$interval == i, 1] <- intmean[ intmean$Interval == i, 2]
+   }
+```    
 
 
+4. Make a histogram of the total number of steps taken each day 
 
-## What is mean total number of steps taken per day?
+```{r stepshistogram2, echo=TRUE}
+   sumdat2 <- aggregate(ad2$steps, by=list(ad2$date), FUN=sum)
+   sumdat2 <- rename( sumdat2, c("Group.1" ="Date", "x"="SummedSteps"))
+   hist(sumdat2$SummedSteps,
+        main = "Histogram of Total Steps Per Day (NAs Imputed)",
+        xlab = "Total Steps Per Day",
+        col="green",
+        breaks = 10)
+```    
 
+and Calculate and report the mean and median total number of steps taken per day. 
+```{r meanmedian2, echo=TRUE, results='asis'}
+  
+  
+  meandat <- aggregate(ad2$steps, by=list(ad2$date), FUN=mean)
+  meandat <- rename( meandat, c("Group.1" ="Date", "x"="MeanSteps"))
+  mediandat <- aggregate(ad2$steps, by=list(ad2$date), FUN=median)
+  meanmed <- cbind(meandat, MedianSteps = mediandat$x )
+  
+  ## Doing things the hard way for the sake of more compact tables *_*
+  temptab1 <- meanmed[meanmed$Date %in% unique(ad$date)[1:21], 1:3]
+  temptab2 <- meanmed[meanmed$Date %in% unique(ad$date)[22:41], 1:3]
+  temptab3 <- meanmed[meanmed$Date %in% unique(ad$date)[42:61], 1:3]
+  temptab2 <- rbind(temptab2, NA)
+  temptab3 <- rbind(temptab3, NA)
+  
 
+  xt <- xtable(cbind(temptab1, NA , temptab2, NA , temptab3))
+  print(xt, type='html')
+```
 
-## What is the average daily activity pattern?
+Do these values differ from the estimates from the first part of the assignment? 
+There are slight differences from the original estimates. The biggest changes are from those means that used to be zero. But on the whole, the differences seem small.
 
+What is the impact of imputing missing data on the estimates of the total daily number of steps? 
+  Days that used to have no values for numbers now have values. But for days that already had values, there is no change.
 
+```{r totalsteps2, echo=TRUE, results='asis'}
 
-## Imputing missing values
+  ## Get the daily sum of steps
+  sumdat2 <- cbind(sumdat2, NonImputedSum = sumdat$SummedSteps)
+  
+  ## Doing things the hard way for the sake of more compact tables *_*
+  temptab1 <- sumdat2[sumdat2$Date %in% unique(ad2$date)[1:21], 1:3]
+  temptab2 <- sumdat2[sumdat2$Date %in% unique(ad2$date)[22:41], 1:3]
+  temptab3 <- sumdat2[sumdat2$Date %in% unique(ad2$date)[42:61], 1:3]
+  temptab2 <- rbind(temptab2, NA)
+  temptab3 <- rbind(temptab3, NA)
+  
 
+  xt <- xtable(cbind(temptab1, " ", temptab2, " ", temptab3))
+  print(xt, type='html')
+```  
 
+### Differences in Activity Patterns Between Weekdays and Weekends
 
-## Are there differences in activity patterns between weekdays and weekends?
+1. Create a new factor variable in the dataset with two levels - "weekday" and "weekend" indicating whether a given date is a weekday or weekend day.
+
+```{r WeekendFactor, echo=TRUE}
+   wday <- c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday")
+   wend <- c("Saturday", "Sunday")
+   ad2$timeofweek <- ""
+   ad2[weekdays(as.Date(ad2$date)) %in% wday, 4] <- "weekday"
+   ad2[weekdays(as.Date(ad2$date)) %in% wend, 4] <- "weekend"
+   
+   ad2$timeofweek <- as.factor(ad2$timeofweek)
+
+```  
+
+2. Make a panel plot containing a time series plot of the 5-minute interval (x-axis) and the average number of steps taken, averaged across all weekday days or weekend days (y-axis).   
+
+```{r timeofweekplot2, echo=TRUE}
+   intmean2 <- aggregate(ad2$steps, by=list(ad2$interval, ad2$timeofweek), FUN=mean, na.action=NULL, na.rm=TRUE)
+   intmean2 <- rename( intmean2, c("Group.1" ="Interval", "Group.2" = "TimeOfWeek", "x"="MeanSteps"))
+   
+   ggplot(intmean2, aes(x=Interval, y=MeanSteps)) + geom_line() +
+         facet_wrap(~TimeOfWeek, ncol=1) +
+         xlab("5 Minute Intervals") + ylab("Average Steps Per Interval") +
+         ggtitle("Time Series Plot of Average Steps Per Interval")
+```  
